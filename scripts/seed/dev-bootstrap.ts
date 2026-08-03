@@ -30,6 +30,11 @@ import "dotenv/config";
 
 import { createHash, randomBytes, scrypt } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import {
+  isMigrationDriftOutput,
+  runBackfillScript,
+  runDbMigrate,
+} from "../lib/migration-drift";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -177,13 +182,36 @@ function runChildScript(script: string, label: string): void {
 
 function runMigrate(): void {
   console.log("> pnpm db:migrate");
-  const result = spawnSync("pnpm", ["db:migrate"], {
-    stdio: "inherit",
-    env: process.env,
-  });
-  if (result.status !== 0) {
-    throw new Error(`pnpm db:migrate exited with status ${result.status ?? "null"}`);
+  let { ok, output } = runDbMigrate(process.env);
+  if (ok) {
+    return;
   }
+
+  if (isMigrationDriftOutput(output)) {
+    console.log(
+      "dev-bootstrap: migration drift detected (schema ahead of journal)"
+    );
+    console.log("dev-bootstrap: running backfill-drizzle-migrations.ts...");
+    const backfill = runBackfillScript(process.env);
+    if (!backfill.ok) {
+      if (backfill.output) {
+        process.stderr.write(backfill.output);
+      }
+      throw new Error(
+        "dev-bootstrap: backfill-drizzle-migrations exited with failure"
+      );
+    }
+    console.log("dev-bootstrap: journal backfilled; retrying db:migrate once");
+    ({ ok, output } = runDbMigrate(process.env));
+    if (ok) {
+      return;
+    }
+  }
+
+  if (output) {
+    process.stderr.write(output);
+  }
+  throw new Error("pnpm db:migrate exited with status 1");
 }
 
 // ---------------------------------------------------------------------------
