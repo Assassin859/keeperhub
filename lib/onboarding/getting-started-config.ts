@@ -60,7 +60,19 @@ export type Chip = {
    * the prompt is kept as the fallback when no starter workflow is available.
    */
   workflowId?: string;
+  /** Optional UI badge (e.g. testnet-ready hint). */
+  badge?: string;
 };
+
+export const SEPOLIA_CHAIN_ID = "11155111";
+export const BASE_SEPOLIA_CHAIN_ID = "84532";
+export const TESTNET_AAVE_SEPOLIA_POOL =
+  "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951";
+export const TESTNET_SEPOLIA_USDC =
+  "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238";
+export const TESTNET_BASE_SEPOLIA_USDC =
+  "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
+export const TESTNET_READY_BADGE = "Testnet-ready";
 
 /**
  * Structured content for the per-step "more info" dialog: a one-line summary
@@ -105,9 +117,12 @@ export type Branch = {
   steps: Step[];
 };
 
-type ChipContext = {
-  /** Reserved for the future holdings scanner. Unused while static. */
+export type ChipContext = {
   walletAddress?: string | null;
+  /** True when the org wallet has funds on a supported testnet. */
+  isTestnetWorkspace?: boolean;
+  /** Preferred testnet chain id when isTestnetWorkspace is true. */
+  chainId?: string;
   /**
    * Chip slug -> live hub workflow id, resolved at runtime from
    * /api/onboarding/recommendations. When present, chips clone the hub
@@ -116,22 +131,48 @@ type ChipContext = {
   resolvedIds?: Record<string, string>;
 };
 
+function buildAaveHealthChip(ctx: ChipContext): Pick<Chip, "prompt" | "badge"> {
+  if (ctx.isTestnetWorkspace && ctx.chainId === SEPOLIA_CHAIN_ID) {
+    return {
+      prompt: `Monitor my Aave v3 health factor on Sepolia (pool ${TESTNET_AAVE_SEPOLIA_POOL}) every hour and alert me when it drops below 1.5.`,
+      badge: TESTNET_READY_BADGE,
+    };
+  }
+  if (ctx.isTestnetWorkspace && ctx.chainId === BASE_SEPOLIA_CHAIN_ID) {
+    return {
+      prompt: `Monitor my wallet on Base Sepolia (USDC ${TESTNET_BASE_SEPOLIA_USDC}) every hour and alert me when a large transfer occurs.`,
+      badge: TESTNET_READY_BADGE,
+    };
+  }
+  return {
+    prompt:
+      "Monitor my Aave v3 health factor every hour and alert me when it drops below 1.5.",
+  };
+}
+
+function buildWhaleWithdrawalPrompt(ctx: ChipContext): string {
+  if (ctx.walletAddress) {
+    return `Watch for large withdrawals from ${ctx.walletAddress} and alert me when one exceeds a threshold.`;
+  }
+  return "Watch for large withdrawals from my tracked address and alert me when one exceeds a threshold.";
+}
+
 // placeholder: KEEP-878 follow-up - monitor event-trigger registry. Static
 // today; later returns targets from the template/registry backend.
 export function getMonitorTargets(ctx: ChipContext = {}): Chip[] {
+  const aave = buildAaveHealthChip(ctx);
   return [
     {
       id: "aave-health",
       label: "Aave health factor",
-      prompt:
-        "Monitor my Aave v3 health factor every hour and alert me when it drops below 1.5.",
+      prompt: aave.prompt,
+      badge: aave.badge,
       workflowId: ctx.resolvedIds?.["aave-health"],
     },
     {
       id: "whale-withdrawal",
       label: "Large withdrawal",
-      prompt:
-        "Watch for large withdrawals from my tracked address and alert me when one exceeds a threshold.",
+      prompt: buildWhaleWithdrawalPrompt(ctx),
       workflowId: ctx.resolvedIds?.["whale-withdrawal"],
     },
     {
@@ -265,6 +306,7 @@ export function getBranches(ctx: ChipContext = {}): Branch[] {
           },
           actionLabel: "Open the builder",
           offerTour: true,
+          chips: getMonitorTargets(ctx),
         },
       ],
     },

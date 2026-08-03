@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/lib/auth-client";
 import { isAnonymousUser } from "@/lib/is-anonymous";
 import {
   type BranchKey,
+  type ChipContext,
   getBranches,
   type SignalId,
   type Step,
 } from "@/lib/onboarding/getting-started-config";
+import { useWalletInfo } from "@/lib/wallet/use-wallet-info";
 
 /**
  * Persisted UI state + completion for the getting-started launcher (KEEP-878).
@@ -39,6 +41,42 @@ const CLICK_DRIVEN: ReadonlySet<SignalId> = new Set<SignalId>([
   // in-app modal is all there is to do here, so complete the step on open.
   "agentConnected",
 ]);
+
+type WalletBalanceEntry = {
+  chainId: number;
+  isTestnet: boolean;
+  nativeBalanceRaw: string;
+};
+
+type BalancesResponse = {
+  balances?: WalletBalanceEntry[];
+};
+
+type TestnetWorkspace = {
+  isTestnetWorkspace: boolean;
+  chainId?: string;
+};
+
+function resolveTestnetWorkspace(
+  balances: WalletBalanceEntry[] | undefined
+): TestnetWorkspace {
+  if (!balances) {
+    return { isTestnetWorkspace: false };
+  }
+  const fundedTestnets = balances.filter(
+    (entry) => entry.isTestnet && entry.nativeBalanceRaw !== "0"
+  );
+  if (fundedTestnets.length === 0) {
+    return { isTestnetWorkspace: false };
+  }
+  const sepolia = fundedTestnets.find((entry) => entry.chainId === 11_155_111);
+  const baseSepolia = fundedTestnets.find((entry) => entry.chainId === 84_532);
+  const picked = sepolia ?? baseSepolia ?? fundedTestnets[0];
+  return {
+    isTestnetWorkspace: true,
+    chainId: String(picked.chainId),
+  };
+}
 
 type OnboardingStatus = {
   hasApiKey: boolean;
@@ -177,10 +215,10 @@ export type GettingStarted = {
   isAuthenticated: boolean;
   /**
    * Chip slug -> live hub workflow id, resolved from /api/onboarding/recommendations.
-   * Pass this into getBranches({ resolvedIds }) so chips clone the seeded hub
-   * workflow instead of falling back to the AI prompt.
    */
   recommendedIds: Record<string, string>;
+  /** Context passed to getBranches for dynamic chip prompts. */
+  chipContext: ChipContext;
 };
 
 export function useGettingStarted(): GettingStarted {
@@ -195,6 +233,19 @@ export function useGettingStarted(): GettingStarted {
   const [recommendedIds, setRecommendedIds] = useState<Record<string, string>>(
     {}
   );
+  const [testnetWorkspace, setTestnetWorkspace] = useState<TestnetWorkspace>({
+    isTestnetWorkspace: false,
+  });
+  const { walletAddress } = useWalletInfo();
+
+  const chipContext = useMemo((): ChipContext => {
+    return {
+      walletAddress,
+      isTestnetWorkspace: testnetWorkspace.isTestnetWorkspace,
+      chainId: testnetWorkspace.chainId,
+      resolvedIds: recommendedIds,
+    };
+  }, [walletAddress, testnetWorkspace, recommendedIds]);
 
   // Re-hydrate persisted state once the user id is known (the key is per-user).
   useEffect(() => {
@@ -264,6 +315,21 @@ export function useGettingStarted(): GettingStarted {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setTestnetWorkspace({ isTestnetWorkspace: false });
+      return;
+    }
+    fetch("/api/user/wallet/balances")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: BalancesResponse | null) => {
+        if (data) {
+          setTestnetWorkspace(resolveTestnetWorkspace(data.balances));
+        }
+      })
+      .catch(() => undefined);
+  }, [isAuthenticated]);
 
   // While the checklist is open, poll so an outcome completed elsewhere (an
   // in-app overlay, or running the draft in the builder) is reflected without
@@ -389,5 +455,6 @@ export function useGettingStarted(): GettingStarted {
     refetch: fetchStatus,
     isAuthenticated,
     recommendedIds,
+    chipContext,
   };
 }

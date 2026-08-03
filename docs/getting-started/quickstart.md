@@ -84,6 +84,14 @@ Example prompts:
 - "Monitor my wallet and alert me on Discord if balance drops below 0.5 ETH"
 - "Check a smart contract function every hour and send an email with the result"
 
+## Local development troubleshooting
+
+If you are running KeeperHub locally (see the contributor setup in the repository README):
+
+- **`pnpm dev:login` fails after `pnpm db:push`:** Your schema is ahead of the Drizzle migration journal. Run `pnpm tsx scripts/backfill-drizzle-migrations.ts`, then retry. Recent versions of `dev:bootstrap` attempt this recovery automatically when migrate output indicates drift.
+- **`db:push` vs `db:migrate`:** Use `pnpm db:push` only for fast local schema iteration. Staging and production apply file-based migrations via `pnpm db:migrate` on deploy.
+- **Local Postgres required:** `dev:login` and `dev:bootstrap` refuse to run unless `DATABASE_URL` points at a local host (for example `postgresql://postgres:postgres@localhost:5433/keeperhub` when using Docker Compose).
+
 ## What's Next
 
 - Explore the **Hub** to discover and import workflow templates from the community

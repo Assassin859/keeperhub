@@ -186,6 +186,11 @@ function StepRow({
               >
                 {cloned && <Check aria-hidden="true" className="size-3" />}
                 {chip.label}
+                {chip.badge ? (
+                  <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+                    {chip.badge}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -301,7 +306,7 @@ function ExpandedCard({
   onTour: (step: Step) => void;
 }): React.ReactElement {
   const [infoStep, setInfoStep] = useState<Step | null>(null);
-  const branches = getBranches({ resolvedIds: gs.recommendedIds });
+  const branches = getBranches(gs.chipContext);
   // Single linear checklist: the agent branch (Wallet ready -> Connect your
   // agent -> Run your first workflow). Monitor / Yield are no longer surfaced.
   const steps = (branches.find((b) => b.key === "agent") ?? branches[0]).steps;
@@ -660,16 +665,12 @@ export function GettingStartedLauncher({
 }
 
 function launcherTotal(gs: GettingStarted): number {
-  const branch = getBranches({ resolvedIds: gs.recommendedIds }).find(
-    (b) => b.key === "agent"
-  );
+  const branch = getBranches(gs.chipContext).find((b) => b.key === "agent");
   return branch?.steps.length ?? 0;
 }
 
 function launcherDone(gs: GettingStarted): number {
-  const branch = getBranches({ resolvedIds: gs.recommendedIds }).find(
-    (b) => b.key === "agent"
-  );
+  const branch = getBranches(gs.chipContext).find((b) => b.key === "agent");
   if (!branch) {
     return 0;
   }
